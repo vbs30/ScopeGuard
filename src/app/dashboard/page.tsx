@@ -18,7 +18,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
     <main className="mx-auto max-w-3xl px-6 py-12">
       <header className="mb-8 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Projects</h1>
-        <form action="/auth/signout" method="post"><button className="text-sm text-neutral-600">Sign out ({user.email})</button></form>
+        <div className="flex items-center gap-4 text-sm text-neutral-600"><a href="/dashboard/settings">Settings</a><form action="/auth/signout" method="post"><button>Sign out ({user.email})</button></form></div>
       </header>
       <Metrics />
       {error && <p role="alert" className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}

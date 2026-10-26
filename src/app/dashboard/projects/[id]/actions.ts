@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { supabaseServer } from "@/lib/supabase/server";
 import { newToken } from "@/lib/token";
+import { sendEmail, describeMail, siteUrl, mailScopePublished, mailChangeAwaiting } from "@/lib/email";
 
 const back = (id: string, q: Record<string, string>): never =>
   redirect(`/dashboard/projects/${id}?${new URLSearchParams(q).toString()}`);
@@ -59,7 +60,9 @@ export async function publishScope(fd: FormData) {
   const lk = await sb.from("public_links").insert({ token_hash: t.hash, scope_version_id: r.id });
   if (lk.error) return back(pid, { error: "Published, but the share link failed. Use 'New link'." });
   await sb.rpc("log_owner_event", { p_project: pid, p_type: "scope_published", p_scope: r.id, p_cr: null });
-  back(pid, { ok: "Scope published. Copy the link now: it is shown only once.", link: `/s/${t.raw}` });
+  const { data: pr } = await sb.from("projects").select("name,client_email").eq("id", pid).single();
+  const note = pr?.client_email ? " " + describeMail(await sendEmail(mailScopePublished(pr.client_email, pr.name, `${siteUrl()}/s/${t.raw}`))) : "";
+  back(pid, { ok: "Scope published. Copy the link now: it is shown only once." + note, link: `/s/${t.raw}` });
 }
 
 /** Replace the client link for the latest published scope: revokes old links, mints a new one. */
@@ -89,7 +92,7 @@ export async function createChangeRequest(fd: FormData) {
   const { data: v } = await sb.from("scope_versions").select("id").eq("project_id", pid)
     .not("published_at", "is", null).order("version", { ascending: false }).limit(1).maybeSingle();
   if (!v) return back(pid, { error: "Publish the original scope first: changes are recorded against a published version." });
-  const { data: proj } = await sb.from("projects").select("currency").eq("id", pid).single();
+    const { data: proj } = await sb.from("projects").select("currency,name,client_email").eq("id", pid).single();
   const ins = await sb.from("change_requests").insert({
     project_id: pid, scope_version_id: v.id, title: p.data.title, description: p.data.description, reason: p.data.reason || null,
     extra_price_cents: Math.round(p.data.price * 100), currency: proj?.currency ?? "USD", extra_days: p.data.extra_days,
@@ -101,7 +104,9 @@ export async function createChangeRequest(fd: FormData) {
   const lk = await sb.from("public_links").insert({ token_hash: t.hash, change_request_id: id });
   if (up.error || lk.error) return back(pid, { error: "Created as draft, but sending failed." });
   await sb.rpc("log_owner_event", { p_project: pid, p_type: "change_request_submitted", p_scope: v.id, p_cr: id });
-  back(pid, { ok: "Change request ready. Send this link to your client (shown once):", link: `/c/${t.raw}` });
+  const cost = `${p.data.price.toLocaleString()} ${proj?.currency ?? "USD"}`;
+  const note = proj?.client_email ? " " + describeMail(await sendEmail(mailChangeAwaiting(proj.client_email, proj.name, p.data.title, cost, p.data.extra_days, `${siteUrl()}/c/${t.raw}`))) : "";
+  back(pid, { ok: "Change request ready. Link (shown once):" + note, link: `/c/${t.raw}` });
 }
 
 export async function withdrawChangeRequest(fd: FormData) {
